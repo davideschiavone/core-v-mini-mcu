@@ -74,9 +74,9 @@ module dma_reg_top #(
   logic [31:0] dst_ptr_qs;
   logic [31:0] dst_ptr_wd;
   logic dst_ptr_we;
-  logic [31:0] addr_ptr_qs;
-  logic [31:0] addr_ptr_wd;
-  logic addr_ptr_we;
+  logic [31:0] addr_bcst_ptr_qs;
+  logic [31:0] addr_bcst_ptr_wd;
+  logic addr_bcst_ptr_we;
   logic [31:0] size_qs;
   logic [31:0] size_wd;
   logic size_we;
@@ -90,12 +90,21 @@ module dma_reg_top #(
   logic [7:0] ptr_inc_dst_ptr_inc_qs;
   logic [7:0] ptr_inc_dst_ptr_inc_wd;
   logic ptr_inc_dst_ptr_inc_we;
+  logic [7:0] ptr_inc_bcst_ptr_inc_qs;
+  logic [7:0] ptr_inc_bcst_ptr_inc_wd;
+  logic ptr_inc_bcst_ptr_inc_we;
   logic [15:0] slot_rx_trigger_slot_qs;
   logic [15:0] slot_rx_trigger_slot_wd;
   logic slot_rx_trigger_slot_we;
   logic [15:0] slot_tx_trigger_slot_qs;
   logic [15:0] slot_tx_trigger_slot_wd;
   logic slot_tx_trigger_slot_we;
+  logic [15:0] bslot_bx_trigger_slot_qs;
+  logic [15:0] bslot_bx_trigger_slot_wd;
+  logic bslot_bx_trigger_slot_we;
+  logic [15:0] bslot_dx_trigger_slot_qs;
+  logic [15:0] bslot_dx_trigger_slot_wd;
+  logic bslot_dx_trigger_slot_we;
   logic [1:0] data_type_qs;
   logic [1:0] data_type_wd;
   logic data_type_we;
@@ -168,19 +177,19 @@ module dma_reg_top #(
   );
 
 
-  // R[addr_ptr]: V(False)
+  // R[addr_bcst_ptr]: V(False)
 
   prim_subreg #(
       .DW      (32),
       .SWACCESS("RW"),
       .RESVAL  (32'h0)
-  ) u_addr_ptr (
+  ) u_addr_bcst_ptr (
       .clk_i (clk_i),
       .rst_ni(rst_ni),
 
       // from register interface
-      .we(addr_ptr_we),
-      .wd(addr_ptr_wd),
+      .we(addr_bcst_ptr_we),
+      .wd(addr_bcst_ptr_wd),
 
       // from internal hardware
       .de(1'b0),
@@ -188,10 +197,10 @@ module dma_reg_top #(
 
       // to internal hardware
       .qe(),
-      .q (reg2hw.addr_ptr.q),
+      .q (reg2hw.addr_bcst_ptr.q),
 
       // to register interface (read)
-      .qs(addr_ptr_qs)
+      .qs(addr_bcst_ptr_qs)
   );
 
 
@@ -308,6 +317,32 @@ module dma_reg_top #(
   );
 
 
+  //   F[bcst_ptr_inc]: 23:16
+  prim_subreg #(
+      .DW      (8),
+      .SWACCESS("RW"),
+      .RESVAL  (8'h4)
+  ) u_ptr_inc_bcst_ptr_inc (
+      .clk_i (clk_i),
+      .rst_ni(rst_ni),
+
+      // from register interface
+      .we(ptr_inc_bcst_ptr_inc_we),
+      .wd(ptr_inc_bcst_ptr_inc_wd),
+
+      // from internal hardware
+      .de(1'b0),
+      .d ('0),
+
+      // to internal hardware
+      .qe(),
+      .q (reg2hw.ptr_inc.bcst_ptr_inc.q),
+
+      // to register interface (read)
+      .qs(ptr_inc_bcst_ptr_inc_qs)
+  );
+
+
   // R[slot]: V(False)
 
   //   F[rx_trigger_slot]: 15:0
@@ -359,6 +394,60 @@ module dma_reg_top #(
 
       // to register interface (read)
       .qs(slot_tx_trigger_slot_qs)
+  );
+
+
+  // R[bslot]: V(False)
+
+  //   F[bx_trigger_slot]: 15:0
+  prim_subreg #(
+      .DW      (16),
+      .SWACCESS("RW"),
+      .RESVAL  (16'h0)
+  ) u_bslot_bx_trigger_slot (
+      .clk_i (clk_i),
+      .rst_ni(rst_ni),
+
+      // from register interface
+      .we(bslot_bx_trigger_slot_we),
+      .wd(bslot_bx_trigger_slot_wd),
+
+      // from internal hardware
+      .de(1'b0),
+      .d ('0),
+
+      // to internal hardware
+      .qe(),
+      .q (reg2hw.bslot.bx_trigger_slot.q),
+
+      // to register interface (read)
+      .qs(bslot_bx_trigger_slot_qs)
+  );
+
+
+  //   F[dx_trigger_slot]: 31:16
+  prim_subreg #(
+      .DW      (16),
+      .SWACCESS("RW"),
+      .RESVAL  (16'h0)
+  ) u_bslot_dx_trigger_slot (
+      .clk_i (clk_i),
+      .rst_ni(rst_ni),
+
+      // from register interface
+      .we(bslot_dx_trigger_slot_we),
+      .wd(bslot_dx_trigger_slot_wd),
+
+      // from internal hardware
+      .de(1'b0),
+      .d ('0),
+
+      // to internal hardware
+      .qe(),
+      .q (reg2hw.bslot.dx_trigger_slot.q),
+
+      // to register interface (read)
+      .qs(bslot_dx_trigger_slot_qs)
   );
 
 
@@ -525,21 +614,22 @@ module dma_reg_top #(
 
 
 
-  logic [11:0] addr_hit;
+  logic [12:0] addr_hit;
   always_comb begin
     addr_hit = '0;
     addr_hit[0] = (reg_addr == DMA_SRC_PTR_OFFSET);
     addr_hit[1] = (reg_addr == DMA_DST_PTR_OFFSET);
-    addr_hit[2] = (reg_addr == DMA_ADDR_PTR_OFFSET);
+    addr_hit[2] = (reg_addr == DMA_ADDR_BCST_PTR_OFFSET);
     addr_hit[3] = (reg_addr == DMA_SIZE_OFFSET);
     addr_hit[4] = (reg_addr == DMA_STATUS_OFFSET);
     addr_hit[5] = (reg_addr == DMA_PTR_INC_OFFSET);
     addr_hit[6] = (reg_addr == DMA_SLOT_OFFSET);
-    addr_hit[7] = (reg_addr == DMA_DATA_TYPE_OFFSET);
-    addr_hit[8] = (reg_addr == DMA_MODE_OFFSET);
-    addr_hit[9] = (reg_addr == DMA_WINDOW_SIZE_OFFSET);
-    addr_hit[10] = (reg_addr == DMA_WINDOW_COUNT_OFFSET);
-    addr_hit[11] = (reg_addr == DMA_INTERRUPT_EN_OFFSET);
+    addr_hit[7] = (reg_addr == DMA_BSLOT_OFFSET);
+    addr_hit[8] = (reg_addr == DMA_DATA_TYPE_OFFSET);
+    addr_hit[9] = (reg_addr == DMA_MODE_OFFSET);
+    addr_hit[10] = (reg_addr == DMA_WINDOW_SIZE_OFFSET);
+    addr_hit[11] = (reg_addr == DMA_WINDOW_COUNT_OFFSET);
+    addr_hit[12] = (reg_addr == DMA_INTERRUPT_EN_OFFSET);
   end
 
   assign addrmiss = (reg_re || reg_we) ? ~|addr_hit : 1'b0;
@@ -558,7 +648,8 @@ module dma_reg_top #(
                (addr_hit[ 8] & (|(DMA_PERMIT[ 8] & ~reg_be))) |
                (addr_hit[ 9] & (|(DMA_PERMIT[ 9] & ~reg_be))) |
                (addr_hit[10] & (|(DMA_PERMIT[10] & ~reg_be))) |
-               (addr_hit[11] & (|(DMA_PERMIT[11] & ~reg_be)))));
+               (addr_hit[11] & (|(DMA_PERMIT[11] & ~reg_be))) |
+               (addr_hit[12] & (|(DMA_PERMIT[12] & ~reg_be)))));
   end
 
   assign src_ptr_we = addr_hit[0] & reg_we & !reg_error;
@@ -567,8 +658,8 @@ module dma_reg_top #(
   assign dst_ptr_we = addr_hit[1] & reg_we & !reg_error;
   assign dst_ptr_wd = reg_wdata[31:0];
 
-  assign addr_ptr_we = addr_hit[2] & reg_we & !reg_error;
-  assign addr_ptr_wd = reg_wdata[31:0];
+  assign addr_bcst_ptr_we = addr_hit[2] & reg_we & !reg_error;
+  assign addr_bcst_ptr_wd = reg_wdata[31:0];
 
   assign size_we = addr_hit[3] & reg_we & !reg_error;
   assign size_wd = reg_wdata[31:0];
@@ -583,25 +674,34 @@ module dma_reg_top #(
   assign ptr_inc_dst_ptr_inc_we = addr_hit[5] & reg_we & !reg_error;
   assign ptr_inc_dst_ptr_inc_wd = reg_wdata[15:8];
 
+  assign ptr_inc_bcst_ptr_inc_we = addr_hit[5] & reg_we & !reg_error;
+  assign ptr_inc_bcst_ptr_inc_wd = reg_wdata[23:16];
+
   assign slot_rx_trigger_slot_we = addr_hit[6] & reg_we & !reg_error;
   assign slot_rx_trigger_slot_wd = reg_wdata[15:0];
 
   assign slot_tx_trigger_slot_we = addr_hit[6] & reg_we & !reg_error;
   assign slot_tx_trigger_slot_wd = reg_wdata[31:16];
 
-  assign data_type_we = addr_hit[7] & reg_we & !reg_error;
+  assign bslot_bx_trigger_slot_we = addr_hit[7] & reg_we & !reg_error;
+  assign bslot_bx_trigger_slot_wd = reg_wdata[15:0];
+
+  assign bslot_dx_trigger_slot_we = addr_hit[7] & reg_we & !reg_error;
+  assign bslot_dx_trigger_slot_wd = reg_wdata[31:16];
+
+  assign data_type_we = addr_hit[8] & reg_we & !reg_error;
   assign data_type_wd = reg_wdata[1:0];
 
-  assign mode_we = addr_hit[8] & reg_we & !reg_error;
+  assign mode_we = addr_hit[9] & reg_we & !reg_error;
   assign mode_wd = reg_wdata[1:0];
 
-  assign window_size_we = addr_hit[9] & reg_we & !reg_error;
+  assign window_size_we = addr_hit[10] & reg_we & !reg_error;
   assign window_size_wd = reg_wdata[31:0];
 
-  assign interrupt_en_transaction_done_we = addr_hit[11] & reg_we & !reg_error;
+  assign interrupt_en_transaction_done_we = addr_hit[12] & reg_we & !reg_error;
   assign interrupt_en_transaction_done_wd = reg_wdata[0];
 
-  assign interrupt_en_window_done_we = addr_hit[11] & reg_we & !reg_error;
+  assign interrupt_en_window_done_we = addr_hit[12] & reg_we & !reg_error;
   assign interrupt_en_window_done_wd = reg_wdata[1];
 
   // Read data return
@@ -617,7 +717,7 @@ module dma_reg_top #(
       end
 
       addr_hit[2]: begin
-        reg_rdata_next[31:0] = addr_ptr_qs;
+        reg_rdata_next[31:0] = addr_bcst_ptr_qs;
       end
 
       addr_hit[3]: begin
@@ -630,8 +730,9 @@ module dma_reg_top #(
       end
 
       addr_hit[5]: begin
-        reg_rdata_next[7:0]  = ptr_inc_src_ptr_inc_qs;
-        reg_rdata_next[15:8] = ptr_inc_dst_ptr_inc_qs;
+        reg_rdata_next[7:0]   = ptr_inc_src_ptr_inc_qs;
+        reg_rdata_next[15:8]  = ptr_inc_dst_ptr_inc_qs;
+        reg_rdata_next[23:16] = ptr_inc_bcst_ptr_inc_qs;
       end
 
       addr_hit[6]: begin
@@ -640,22 +741,27 @@ module dma_reg_top #(
       end
 
       addr_hit[7]: begin
-        reg_rdata_next[1:0] = data_type_qs;
+        reg_rdata_next[15:0]  = bslot_bx_trigger_slot_qs;
+        reg_rdata_next[31:16] = bslot_dx_trigger_slot_qs;
       end
 
       addr_hit[8]: begin
-        reg_rdata_next[1:0] = mode_qs;
+        reg_rdata_next[1:0] = data_type_qs;
       end
 
       addr_hit[9]: begin
-        reg_rdata_next[31:0] = window_size_qs;
+        reg_rdata_next[1:0] = mode_qs;
       end
 
       addr_hit[10]: begin
-        reg_rdata_next[31:0] = window_count_qs;
+        reg_rdata_next[31:0] = window_size_qs;
       end
 
       addr_hit[11]: begin
+        reg_rdata_next[31:0] = window_count_qs;
+      end
+
+      addr_hit[12]: begin
         reg_rdata_next[0] = interrupt_en_transaction_done_qs;
         reg_rdata_next[1] = interrupt_en_window_done_qs;
       end
