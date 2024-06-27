@@ -134,7 +134,7 @@ mcu-gen-help:
 
 ## Runs verible formating
 verible:
-	util/format-verible;
+#	util/format-verible;
 
 ## @section APP FW Build
 
