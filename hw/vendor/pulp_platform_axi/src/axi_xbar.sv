@@ -15,39 +15,56 @@
 
 // axi_xbar: Fully-connected AXI4+ATOP crossbar with an arbitrary number of slave and master ports.
 // See `doc/axi_xbar.md` for the documentation, including the definition of parameters and ports.
-module axi_xbar #(
-  parameter axi_pkg::xbar_cfg_t Cfg = '0,
-  parameter bit  ATOPs              = 1'b1,
-  parameter type slv_aw_chan_t      = logic,
-  parameter type mst_aw_chan_t      = logic,
-  parameter type w_chan_t           = logic,
-  parameter type slv_b_chan_t       = logic,
-  parameter type mst_b_chan_t       = logic,
-  parameter type slv_ar_chan_t      = logic,
-  parameter type mst_ar_chan_t      = logic,
-  parameter type slv_r_chan_t       = logic,
-  parameter type mst_r_chan_t       = logic,
-  parameter type slv_req_t          = logic,
-  parameter type slv_resp_t         = logic,
-  parameter type mst_req_t          = logic,
-  parameter type mst_resp_t         = logic,
-  parameter type rule_t             = axi_pkg::xbar_rule_64_t
+module axi_xbar
+import cf_math_pkg::idx_width;
+#(
+  parameter axi_pkg::xbar_cfg_t Cfg                                   = '0,
+  parameter bit  ATOPs                                                = 1'b1,
+  parameter bit [Cfg.NoSlvPorts-1:0][Cfg.NoMstPorts-1:0] Connectivity = '1,
+  parameter type slv_aw_chan_t                                        = logic,
+  parameter type mst_aw_chan_t                                        = logic,
+  parameter type w_chan_t                                             = logic,
+  parameter type slv_b_chan_t                                         = logic,
+  parameter type mst_b_chan_t                                         = logic,
+  parameter type slv_ar_chan_t                                        = logic,
+  parameter type mst_ar_chan_t                                        = logic,
+  parameter type slv_r_chan_t                                         = logic,
+  parameter type mst_r_chan_t                                         = logic,
+  parameter type slv_req_t                                            = logic,
+  parameter type slv_resp_t                                           = logic,
+  parameter type mst_req_t                                            = logic,
+  parameter type mst_resp_t                                           = logic,
+  parameter type rule_t                                               = axi_pkg::xbar_rule_64_t
+`ifdef VCS
+  , localparam int unsigned MstPortsIdxWidth =
+      (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts))
+`endif
 ) (
-  input  logic                                                       clk_i,
-  input  logic                                                       rst_ni,
-  input  logic                                                       test_i,
-  input  slv_req_t  [Cfg.NoSlvPorts-1:0]                             slv_ports_req_i,
-  output slv_resp_t [Cfg.NoSlvPorts-1:0]                             slv_ports_resp_o,
-  output mst_req_t  [Cfg.NoMstPorts-1:0]                             mst_ports_req_o,
-  input  mst_resp_t [Cfg.NoMstPorts-1:0]                             mst_ports_resp_i,
-  input  rule_t     [Cfg.NoAddrRules-1:0]                            addr_map_i,
-  input  logic      [Cfg.NoSlvPorts-1:0]                             en_default_mst_port_i,
-  input  logic      [Cfg.NoSlvPorts-1:0][$clog2(Cfg.NoMstPorts)-1:0] default_mst_port_i
+  input  logic                                                          clk_i,
+  input  logic                                                          rst_ni,
+  input  logic                                                          test_i,
+  input  slv_req_t  [Cfg.NoSlvPorts-1:0]                                slv_ports_req_i,
+  output slv_resp_t [Cfg.NoSlvPorts-1:0]                                slv_ports_resp_o,
+  output mst_req_t  [Cfg.NoMstPorts-1:0]                                mst_ports_req_o,
+  input  mst_resp_t [Cfg.NoMstPorts-1:0]                                mst_ports_resp_i,
+  input  rule_t     [Cfg.NoAddrRules-1:0]                               addr_map_i,
+  input  logic      [Cfg.NoSlvPorts-1:0]                                en_default_mst_port_i,
+`ifdef VCS
+  input  logic      [Cfg.NoSlvPorts-1:0][MstPortsIdxWidth-1:0]          default_mst_port_i
+`else
+  input  logic      [Cfg.NoSlvPorts-1:0][idx_width(Cfg.NoMstPorts)-1:0] default_mst_port_i
+`endif
 );
 
   typedef logic [Cfg.AxiAddrWidth-1:0]           addr_t;
   // to account for the decoding error slave
-  typedef logic [$clog2(Cfg.NoMstPorts + 1)-1:0] mst_port_idx_t;
+`ifdef VCS
+  localparam int unsigned MstPortsIdxWidthOne =
+      (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts + 1));
+  typedef logic [MstPortsIdxWidthOne-1:0]           mst_port_idx_t;
+`else
+  typedef logic [idx_width(Cfg.NoMstPorts + 1)-1:0] mst_port_idx_t;
+`endif
 
   // signals from the axi_demuxes, one index more for decode error
   slv_req_t  [Cfg.NoSlvPorts-1:0][Cfg.NoMstPorts:0]  slv_reqs;
@@ -61,10 +78,14 @@ module axi_xbar #(
   slv_resp_t [Cfg.NoMstPorts-1:0][Cfg.NoSlvPorts-1:0] mst_resps;
 
   for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
-    logic [$clog2(Cfg.NoMstPorts)-1:0] dec_aw,        dec_ar;
-    mst_port_idx_t                     slv_aw_select, slv_ar_select;
-    logic                              dec_aw_valid,  dec_aw_error;
-    logic                              dec_ar_valid,  dec_ar_error;
+`ifdef VCS
+    logic [MstPortsIdxWidth-1:0]          dec_aw,        dec_ar;
+`else
+    logic [idx_width(Cfg.NoMstPorts)-1:0] dec_aw,        dec_ar;
+`endif
+    mst_port_idx_t                        slv_aw_select, slv_ar_select;
+    logic                                 dec_aw_valid,  dec_aw_error;
+    logic                                 dec_ar_valid,  dec_ar_error;
 
     addr_decode #(
       .NoIndices  ( Cfg.NoMstPorts  ),
@@ -131,13 +152,14 @@ module axi_xbar #(
     // pragma translate_on
     axi_demux #(
       .AxiIdWidth     ( Cfg.AxiIdWidthSlvPorts ),  // ID Width
+      .AtopSupport    ( ATOPs                  ),
       .aw_chan_t      ( slv_aw_chan_t          ),  // AW Channel Type
       .w_chan_t       ( w_chan_t               ),  //  W Channel Type
       .b_chan_t       ( slv_b_chan_t           ),  //  B Channel Type
       .ar_chan_t      ( slv_ar_chan_t          ),  // AR Channel Type
       .r_chan_t       ( slv_r_chan_t           ),  //  R Channel Type
-      .req_t          ( slv_req_t              ),
-      .resp_t         ( slv_resp_t             ),
+      .axi_req_t      ( slv_req_t              ),
+      .axi_resp_t     ( slv_resp_t             ),
       .NoMstPorts     ( Cfg.NoMstPorts + 1     ),
       .MaxTrans       ( Cfg.MaxMstTrans        ),
       .AxiLookBits    ( Cfg.AxiIdUsedSlvPorts  ),
@@ -162,8 +184,8 @@ module axi_xbar #(
 
     axi_err_slv #(
       .AxiIdWidth  ( Cfg.AxiIdWidthSlvPorts ),
-      .req_t       ( slv_req_t              ),
-      .resp_t      ( slv_resp_t             ),
+      .axi_req_t   ( slv_req_t              ),
+      .axi_resp_t  ( slv_resp_t             ),
       .Resp        ( axi_pkg::RESP_DECERR   ),
       .ATOPs       ( ATOPs                  ),
       .MaxTrans    ( 4                      )   // Transactions terminate at this slave, so minimize
@@ -182,8 +204,27 @@ module axi_xbar #(
   // cross all channels
   for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_xbar_slv_cross
     for (genvar j = 0; j < Cfg.NoMstPorts; j++) begin : gen_xbar_mst_cross
-      assign mst_reqs[j][i]  = slv_reqs[i][j];
-      assign slv_resps[i][j] = mst_resps[j][i];
+      if (Connectivity[i][j]) begin : gen_connection
+        assign mst_reqs[j][i]  = slv_reqs[i][j];
+        assign slv_resps[i][j] = mst_resps[j][i];
+
+      end else begin : gen_no_connection
+        assign mst_reqs[j][i] = '0;
+        axi_err_slv #(
+          .AxiIdWidth ( Cfg.AxiIdWidthSlvPorts  ),
+          .axi_req_t  ( slv_req_t               ),
+          .axi_resp_t ( slv_resp_t              ),
+          .Resp       ( axi_pkg::RESP_DECERR    ),
+          .ATOPs      ( ATOPs                   ),
+          .MaxTrans   ( 1                       )
+        ) i_axi_err_slv (
+          .clk_i,
+          .rst_ni,
+          .test_i,
+          .slv_req_i  ( slv_reqs[i][j]  ),
+          .slv_resp_o ( slv_resps[i][j] )
+        );
+      end
     end
   end
 
@@ -239,19 +280,31 @@ endmodule
 `include "axi/assign.svh"
 `include "axi/typedef.svh"
 
-module axi_xbar_intf #(
+module axi_xbar_intf
+import cf_math_pkg::idx_width;
+#(
   parameter int unsigned AXI_USER_WIDTH =  0,
   parameter axi_pkg::xbar_cfg_t Cfg     = '0,
+  parameter bit ATOPS                   = 1'b1,
+  parameter bit [Cfg.NoSlvPorts-1:0][Cfg.NoMstPorts-1:0] CONNECTIVITY = '1,
   parameter type rule_t                 = axi_pkg::xbar_rule_64_t
+`ifdef VCS
+  , localparam int unsigned MstPortsIdxWidth =
+        (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts))
+`endif
 ) (
-  input  logic                                                    clk_i,
-  input  logic                                                    rst_ni,
-  input  logic                                                    test_i,
-  AXI_BUS.Slave                                                   slv_ports [Cfg.NoSlvPorts-1:0],
-  AXI_BUS.Master                                                  mst_ports [Cfg.NoMstPorts-1:0],
-  input  rule_t [Cfg.NoAddrRules-1:0]                             addr_map_i,
-  input  logic  [Cfg.NoSlvPorts-1:0]                              en_default_mst_port_i,
-  input  logic  [Cfg.NoSlvPorts-1:0][$clog2(Cfg.NoMstPorts)-1:0]  default_mst_port_i
+  input  logic                                                      clk_i,
+  input  logic                                                      rst_ni,
+  input  logic                                                      test_i,
+  AXI_BUS.Slave                                                     slv_ports [Cfg.NoSlvPorts-1:0],
+  AXI_BUS.Master                                                    mst_ports [Cfg.NoMstPorts-1:0],
+  input  rule_t [Cfg.NoAddrRules-1:0]                               addr_map_i,
+  input  logic  [Cfg.NoSlvPorts-1:0]                                en_default_mst_port_i,
+`ifdef VCS
+  input  logic  [Cfg.NoSlvPorts-1:0][MstPortsIdxWidth-1:0]          default_mst_port_i
+`else
+  input  logic  [Cfg.NoSlvPorts-1:0][idx_width(Cfg.NoMstPorts)-1:0] default_mst_port_i
+`endif
 );
 
   localparam int unsigned AxiIdWidthMstPorts = Cfg.AxiIdWidthSlvPorts + $clog2(Cfg.NoSlvPorts);
@@ -294,6 +347,8 @@ module axi_xbar_intf #(
 
   axi_xbar #(
     .Cfg  (Cfg),
+    .ATOPs          ( ATOPS         ),
+    .Connectivity   ( CONNECTIVITY  ),
     .slv_aw_chan_t  ( slv_aw_chan_t ),
     .mst_aw_chan_t  ( mst_aw_chan_t ),
     .w_chan_t       ( w_chan_t      ),

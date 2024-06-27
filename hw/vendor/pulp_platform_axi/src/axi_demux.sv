@@ -12,19 +12,41 @@
 // - Wolfgang Roenninger <wroennin@iis.ee.ethz.ch>
 // - Andreas Kurth <akurth@iis.ee.ethz.ch>
 
+`include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
 
-// axi_demux: Demultiplex an AXI bus from one slave port to multiple master ports.
-// See `doc/axi_demux.md` for the documentation, including the definition of parameters and ports.
+`ifdef QUESTA
+// Derive `TARGET_VSIM`, which is used for tool-specific workarounds in this file, from `QUESTA`,
+// which is automatically set in Questa.
+`define TARGET_VSIM
+`endif
+
+/// Demultiplex one AXI4+ATOP slave port to multiple AXI4+ATOP master ports.
+///
+/// The AW and AR slave channels each have a `select` input to determine to which master port the
+/// current request is sent.  The `select` can, for example, be driven by an address decoding module
+/// to map address ranges to different AXI slaves.
+///
+/// ## Design overview
+///
+/// ![Block diagram](module.axi_demux.png "Block diagram")
+///
+/// Beats on the W channel are routed by demultiplexer according to the selection for the
+/// corresponding AW beat.  This relies on the AXI property that W bursts must be sent in the same
+/// order as AW beats and beats from different W bursts may not be interleaved.
+///
+/// Beats on the B and R channel are multiplexed from the master ports to the slave port with
+/// a round-robin arbitration tree.
 module axi_demux #(
   parameter int unsigned AxiIdWidth     = 32'd0,
+  parameter bit          AtopSupport    = 1'b1,
   parameter type         aw_chan_t      = logic,
   parameter type         w_chan_t       = logic,
   parameter type         b_chan_t       = logic,
   parameter type         ar_chan_t      = logic,
   parameter type         r_chan_t       = logic,
-  parameter type         req_t          = logic,
-  parameter type         resp_t         = logic,
+  parameter type         axi_req_t      = logic,
+  parameter type         axi_resp_t     = logic,
   parameter int unsigned NoMstPorts     = 32'd0,
   parameter int unsigned MaxTrans       = 32'd8,
   parameter int unsigned AxiLookBits    = 32'd3,
@@ -39,17 +61,17 @@ module axi_demux #(
   parameter int unsigned SelectWidth    = (NoMstPorts > 32'd1) ? $clog2(NoMstPorts) : 32'd1,
   parameter type         select_t       = logic [SelectWidth-1:0]
 ) (
-  input  logic                     clk_i,
-  input  logic                     rst_ni,
-  input  logic                     test_i,
+  input  logic                          clk_i,
+  input  logic                          rst_ni,
+  input  logic                          test_i,
   // Slave Port
-  input  req_t                     slv_req_i,
-  input  select_t                  slv_aw_select_i,
-  input  select_t                  slv_ar_select_i,
-  output resp_t                    slv_resp_o,
+  input  axi_req_t                      slv_req_i,
+  input  select_t                       slv_aw_select_i,
+  input  select_t                       slv_ar_select_i,
+  output axi_resp_t                     slv_resp_o,
   // Master Ports
-  output req_t    [NoMstPorts-1:0] mst_reqs_o,
-  input  resp_t   [NoMstPorts-1:0] mst_resps_i
+  output axi_req_t    [NoMstPorts-1:0]  mst_reqs_o,
+  input  axi_resp_t   [NoMstPorts-1:0]  mst_resps_i
 );
 
   localparam int unsigned IdCounterWidth = MaxTrans > 1 ? $clog2(MaxTrans) : 1;
@@ -68,8 +90,72 @@ module axi_demux #(
 
   // pass through if only one master port
   if (NoMstPorts == 32'h1) begin : gen_no_demux
-    assign mst_reqs_o[0] = slv_req_i;
-    assign slv_resp_o    = mst_resps_i;
+    spill_register #(
+      .T       ( aw_chan_t  ),
+      .Bypass  ( ~SpillAw   )
+    ) i_aw_spill_reg (
+      .clk_i   ( clk_i                    ),
+      .rst_ni  ( rst_ni                   ),
+      .valid_i ( slv_req_i.aw_valid       ),
+      .ready_o ( slv_resp_o.aw_ready      ),
+      .data_i  ( slv_req_i.aw             ),
+      .valid_o ( mst_reqs_o[0].aw_valid   ),
+      .ready_i ( mst_resps_i[0].aw_ready  ),
+      .data_o  ( mst_reqs_o[0].aw         )
+    );
+    spill_register #(
+      .T       ( w_chan_t  ),
+      .Bypass  ( ~SpillW   )
+    ) i_w_spill_reg (
+      .clk_i   ( clk_i                   ),
+      .rst_ni  ( rst_ni                  ),
+      .valid_i ( slv_req_i.w_valid       ),
+      .ready_o ( slv_resp_o.w_ready      ),
+      .data_i  ( slv_req_i.w             ),
+      .valid_o ( mst_reqs_o[0].w_valid   ),
+      .ready_i ( mst_resps_i[0].w_ready  ),
+      .data_o  ( mst_reqs_o[0].w         )
+    );
+    spill_register #(
+      .T       ( b_chan_t ),
+      .Bypass  ( ~SpillB      )
+    ) i_b_spill_reg (
+      .clk_i   ( clk_i                  ),
+      .rst_ni  ( rst_ni                 ),
+      .valid_i ( mst_resps_i[0].b_valid ),
+      .ready_o ( mst_reqs_o[0].b_ready  ),
+      .data_i  ( mst_resps_i[0].b       ),
+      .valid_o ( slv_resp_o.b_valid     ),
+      .ready_i ( slv_req_i.b_ready      ),
+      .data_o  ( slv_resp_o.b           )
+    );
+    spill_register #(
+      .T       ( ar_chan_t  ),
+      .Bypass  ( ~SpillAr   )
+    ) i_ar_spill_reg (
+      .clk_i   ( clk_i                    ),
+      .rst_ni  ( rst_ni                   ),
+      .valid_i ( slv_req_i.ar_valid       ),
+      .ready_o ( slv_resp_o.ar_ready      ),
+      .data_i  ( slv_req_i.ar             ),
+      .valid_o ( mst_reqs_o[0].ar_valid   ),
+      .ready_i ( mst_resps_i[0].ar_ready  ),
+      .data_o  ( mst_reqs_o[0].ar         )
+    );
+    spill_register #(
+      .T       ( r_chan_t ),
+      .Bypass  ( ~SpillR      )
+    ) i_r_spill_reg (
+      .clk_i   ( clk_i                  ),
+      .rst_ni  ( rst_ni                 ),
+      .valid_i ( mst_resps_i[0].r_valid ),
+      .ready_o ( mst_reqs_o[0].r_ready  ),
+      .data_i  ( mst_resps_i[0].r       ),
+      .valid_o ( slv_resp_o.r_valid     ),
+      .ready_i ( slv_req_i.r_ready      ),
+      .data_o  ( slv_resp_o.r           )
+    );
+
   // other non degenerate cases
   end else begin : gen_demux
 
@@ -148,9 +234,15 @@ module axi_demux #(
     // AW Channel
     //--------------------------------------
     // spill register at the channel input
+    `ifdef TARGET_VSIM
     // Workaround for bug in Questa 2020.2 and 2021.1: Flatten the struct into a logic vector before
     // instantiating `spill_register`.
     typedef logic [$bits(aw_chan_select_t)-1:0] aw_chan_select_flat_t;
+    `else
+    // Other tools, such as VCS, have problems with `$bits()`, so the workaround cannot be used
+    // generally.
+    typedef aw_chan_select_t aw_chan_select_flat_t;
+    `endif
     aw_chan_select_flat_t slv_aw_chan_select_in_flat,
                           slv_aw_chan_select_out_flat;
     assign slv_aw_chan_select_in_flat = {slv_req_i.aw, slv_aw_select_i};
@@ -193,12 +285,16 @@ module axi_demux #(
           slv_aw_ready    = 1'b1;
           lock_aw_valid_d = 1'b0;
           load_aw_lock    = 1'b1;
-          atop_inject     = slv_aw_chan_select.aw_chan.atop[5]; // inject the ATOP if necessary
+          // inject the ATOP if necessary
+          atop_inject     = slv_aw_chan_select.aw_chan.atop[axi_pkg::ATOP_R_RESP] & AtopSupport;
         end
       end else begin
-        // Process can start handling a transaction if its `i_aw_id_counter` and `w_fifo` have
-        // space in them. Further check if we could inject something on the AR channel.
-        if (!aw_id_cnt_full && !w_fifo_full && !ar_id_cnt_full) begin
+        // An AW can be handled if `i_aw_id_counter` and `i_w_fifo` are not full.  An ATOP that
+        // requires an R response can be handled if additionally `i_ar_id_counter` is not full (this
+        // only applies if ATOPs are supported at all).
+        if (!aw_id_cnt_full && !w_fifo_full &&
+            (!(ar_id_cnt_full && slv_aw_chan_select.aw_chan.atop[axi_pkg::ATOP_R_RESP]) ||
+             !AtopSupport)) begin
           // there is a valid AW vector make the id lookup and go further, if it passes
           if (slv_aw_valid && (!aw_select_occupied ||
              (slv_aw_chan_select.aw_select == lookup_aw_select))) begin
@@ -209,7 +305,7 @@ module axi_demux #(
             // on AW transaction
             if (aw_ready) begin
               slv_aw_ready = 1'b1;
-              atop_inject  = slv_aw_chan_select.aw_chan.atop[5];
+              atop_inject  = slv_aw_chan_select.aw_chan.atop[axi_pkg::ATOP_R_RESP] & AtopSupport;
             // no AW transaction this cycle, lock the decision
             end else begin
               lock_aw_valid_d = 1'b1;
@@ -333,9 +429,12 @@ module axi_demux #(
     //--------------------------------------
     //  AR Channel
     //--------------------------------------
-    // Workaround for bug in Questa 2020.2 and 2021.1: Flatten the struct into a logic vector before
-    // instantiating `spill_register`.
+    // Workaround for bug in Questa (see comments on AW channel for details).
+    `ifdef TARGET_VSIM
     typedef logic [$bits(ar_chan_select_t)-1:0] ar_chan_select_flat_t;
+    `else
+    typedef ar_chan_select_t ar_chan_select_flat_t;
+    `endif
     ar_chan_select_flat_t slv_ar_chan_select_in_flat,
                           slv_ar_chan_select_out_flat;
     assign slv_ar_chan_select_in_flat = {slv_req_i.ar, slv_ar_select_i};
@@ -559,6 +658,7 @@ module axi_demux #(
     internal_aw_select: assert property( @(posedge clk_i)
         (aw_valid |-> slv_aw_chan_select.aw_select < NoMstPorts))
       else $fatal(1, "slv_aw_chan_select.aw_select illegal while aw_valid.");
+    `ASSUME(NoAtopAllowed, !AtopSupport && slv_req_i.aw_valid |-> slv_req_i.aw.atop == '0)
 `endif
 `endif
 // pragma translate_on
@@ -691,6 +791,7 @@ endmodule
 `include "axi/typedef.svh"
 module axi_demux_intf #(
   parameter int unsigned AXI_ID_WIDTH     = 32'd0, // Synopsys DC requires default value for params
+  parameter bit          ATOP_SUPPORT     = 1'b1,
   parameter int unsigned AXI_ADDR_WIDTH   = 32'd0,
   parameter int unsigned AXI_DATA_WIDTH   = 32'd0,
   parameter int unsigned AXI_USER_WIDTH   = 32'd0,
@@ -727,13 +828,13 @@ module axi_demux_intf #(
   `AXI_TYPEDEF_B_CHAN_T(b_chan_t, id_t, user_t)
   `AXI_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)
   `AXI_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)
-  `AXI_TYPEDEF_REQ_T(req_t, aw_chan_t, w_chan_t, ar_chan_t)
-  `AXI_TYPEDEF_RESP_T(resp_t, b_chan_t, r_chan_t)
+  `AXI_TYPEDEF_REQ_T(axi_req_t, aw_chan_t, w_chan_t, ar_chan_t)
+  `AXI_TYPEDEF_RESP_T(axi_resp_t, b_chan_t, r_chan_t)
 
-  req_t                     slv_req;
-  resp_t                    slv_resp;
-  req_t  [NO_MST_PORTS-1:0] mst_req;
-  resp_t [NO_MST_PORTS-1:0] mst_resp;
+  axi_req_t                     slv_req;
+  axi_resp_t                    slv_resp;
+  axi_req_t  [NO_MST_PORTS-1:0] mst_req;
+  axi_resp_t [NO_MST_PORTS-1:0] mst_resp;
 
   `AXI_ASSIGN_TO_REQ(slv_req, slv)
   `AXI_ASSIGN_FROM_RESP(slv, slv_resp)
@@ -745,13 +846,14 @@ module axi_demux_intf #(
 
   axi_demux #(
     .AxiIdWidth     ( AXI_ID_WIDTH  ), // ID Width
-    .aw_chan_t      ( aw_chan_t     ), // AW Channel Type
-    .w_chan_t       (  w_chan_t     ), //  W Channel Type
-    .b_chan_t       (  b_chan_t     ), //  B Channel Type
-    .ar_chan_t      ( ar_chan_t     ), // AR Channel Type
-    .r_chan_t       (  r_chan_t     ), //  R Channel Type
-    .req_t          (     req_t     ),
-    .resp_t         (    resp_t     ),
+    .AtopSupport    ( ATOP_SUPPORT  ),
+    .aw_chan_t      (  aw_chan_t    ), // AW Channel Type
+    .w_chan_t       (   w_chan_t    ), //  W Channel Type
+    .b_chan_t       (   b_chan_t    ), //  B Channel Type
+    .ar_chan_t      (  ar_chan_t    ), // AR Channel Type
+    .r_chan_t       (   r_chan_t    ), //  R Channel Type
+    .axi_req_t      (  axi_req_t    ),
+    .axi_resp_t     ( axi_resp_t    ),
     .NoMstPorts     ( NO_MST_PORTS  ),
     .MaxTrans       ( MAX_TRANS     ),
     .AxiLookBits    ( AXI_LOOK_BITS ),

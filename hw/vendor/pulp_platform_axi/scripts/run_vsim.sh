@@ -13,7 +13,6 @@
 # Authors:
 # - Andreas Kurth <akurth@iis.ee.ethz.ch>
 # - Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-# - Matheus Cavalcante <matheusd@iis.ee.ethz.ch>
 
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -72,6 +71,70 @@ exec_test() {
                 done
             done
             ;;
+        axi_fifo)
+            for DEPTH in 0 1 16; do
+                for FALL_THROUGH in 0 1; do
+                    call_vsim tb_axi_fifo -gDepth=$DEPTH \
+                            -gFallThrough=$FALL_THROUGH
+                done
+            done
+            ;;
+        axi_iw_converter)
+            for SLV_PORT_IW in 1 2 3 4 8; do
+                MAX_SLV_PORT_IDS=$((2**SLV_PORT_IW))
+                MAX_UNIQ_SLV_PORT_IDS_OPTS=(1 2)
+                EXCL_OPTS=(0)
+                if [ $SLV_PORT_IW -eq 3 ]; then
+                    # Save time by not testing exclusive accesses for every parametrization.
+                    EXCL_OPTS+=(1)
+                fi
+                for EXCL in "${EXCL_OPTS[@]}"; do
+                    if [ $MAX_SLV_PORT_IDS -gt 2 ]; then
+                        MAX_UNIQ_SLV_PORT_IDS_OPTS+=(3 4)
+                    fi
+                    if [ $(($MAX_SLV_PORT_IDS/2)) -ge 4 ]; then
+                        MAX_UNIQ_SLV_PORT_IDS_OPTS+=($((MAX_SLV_PORT_IDS/2-1)))
+                    fi
+                    MAX_UNIQ_SLV_PORT_IDS_OPTS+=($MAX_SLV_PORT_IDS)
+                    for MST_PORT_IW in 1 2 3 4; do
+                        if [ $MST_PORT_IW -lt $SLV_PORT_IW ]; then # downsize
+                            for MAX_UNIQ_SLV_PORT_IDS in "${MAX_UNIQ_SLV_PORT_IDS_OPTS[@]}"; do
+                                MAX_MST_PORT_IDS=$((2**MST_PORT_IW))
+                                if [ $MAX_UNIQ_SLV_PORT_IDS -le $MAX_MST_PORT_IDS ]; then
+                                    call_vsim tb_axi_iw_converter \
+                                            -t 1ns -coverage -classdebug \
+                                            -voptargs="+acc +cover=bcesfx" \
+                                            -GTbEnExcl=$EXCL \
+                                            -GTbAxiSlvPortIdWidth=$SLV_PORT_IW \
+                                            -GTbAxiMstPortIdWidth=$MST_PORT_IW \
+                                            -GTbAxiSlvPortMaxUniqIds=$MAX_UNIQ_SLV_PORT_IDS \
+                                            -GTbAxiSlvPortMaxTxnsPerId=5
+                                else
+                                    call_vsim tb_axi_iw_converter \
+                                            -t 1ns -coverage -classdebug \
+                                            -voptargs="+acc +cover=bcesfx" \
+                                            -GTbEnExcl=$EXCL \
+                                            -GTbAxiSlvPortIdWidth=$SLV_PORT_IW \
+                                            -GTbAxiMstPortIdWidth=$MST_PORT_IW \
+                                            -GTbAxiSlvPortMaxUniqIds=$MAX_UNIQ_SLV_PORT_IDS \
+                                            -GTbAxiSlvPortMaxTxns=31 \
+                                            -GTbAxiMstPortMaxUniqIds=$((2**MST_PORT_IW)) \
+                                            -GTbAxiMstPortMaxTxnsPerId=7
+                                fi
+                            done
+                        else
+                            call_vsim tb_axi_iw_converter \
+                                    -t 1ns -coverage -classdebug \
+                                    -voptargs="+acc +cover=bcesfx" \
+                                    -GTbEnExcl=$EXCL \
+                                    -GTbAxiSlvPortIdWidth=$SLV_PORT_IW \
+                                    -GTbAxiMstPortIdWidth=$MST_PORT_IW \
+                                    -GTbAxiSlvPortMaxTxnsPerId=3
+                        fi
+                    done
+                done
+            done
+            ;;
         axi_lite_regs)
             SEEDS+=(10 42)
             for PRIV in 0 1; do
@@ -104,11 +167,37 @@ exec_test() {
             done
             ;;
         axi_xbar)
-            for Atop in 0 1; do
-                for Exclusive in 0 1; do
-                    for UniqueIds in 0 1; do
-                        call_vsim tb_axi_xbar -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
-                                -gTbUniqueIds=$UniqueIds
+            for NumMst in 1 6; do
+                for NumSlv in 1 8; do
+                    for Atop in 0 1; do
+                        for Exclusive in 0 1; do
+                            for UniqueIds in 0 1; do
+                                call_vsim tb_axi_xbar -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
+                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
+                                        -gTbUniqueIds=$UniqueIds
+                            done
+                        done
+                    done
+                done
+            done
+            ;;
+        axi_to_mem_banked)
+            for MEM_LAT in 1 2; do
+                for BANK_FACTOR in 1 2; do
+                    for NUM_BANKS in 1 2 ; do
+                        for AXI_DATA_WIDTH in 64 256 ; do
+                            ACT_BANKS=$((2*$BANK_FACTOR*$NUM_BANKS))
+                            MEM_DATA_WIDTH=$(($AXI_DATA_WIDTH/$NUM_BANKS))
+                            call_vsim tb_axi_to_mem_banked \
+                                -voptargs="+acc +cover=bcesfx" \
+                                -gTbAxiDataWidth=$AXI_DATA_WIDTH \
+                                -gTbNumWords=2048 \
+                                -gTbNumBanks=$ACT_BANKS \
+                                -gTbMemDataWidth=$MEM_DATA_WIDTH \
+                                -gTbMemLatency=$MEM_LAT \
+                                -gTbNumWrites=2000 \
+                                -gTbNumReads=2000
+                        done
                     done
                 done
             done

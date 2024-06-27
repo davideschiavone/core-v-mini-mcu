@@ -520,6 +520,9 @@ def main():
     flash_mem_start_address  = string2int(obj['flash_mem']['address'])
     flash_mem_size_address  = string2int(obj['flash_mem']['length'])
 
+    axi_sl_slave_start_address  = string2int(obj['axi_sl_slave']['address'])
+    axi_sl_slave_size_address  = string2int(obj['axi_sl_slave']['length'])
+
     stack_size  = string2int(obj['linker_script']['stack_size'])
     heap_size  = string2int(obj['linker_script']['heap_size'])
 
@@ -830,6 +833,8 @@ def main():
         "ext_slave_size_address"           : ext_slave_size_address,
         "flash_mem_start_address"          : flash_mem_start_address,
         "flash_mem_size_address"           : flash_mem_size_address,
+        "axi_sl_slave_start_address"       : axi_sl_slave_start_address,
+        "axi_sl_slave_size_address"        : axi_sl_slave_size_address,
         "stack_size"                       : stack_size,
         "heap_size"                        : heap_size,
         "plic_used_n_interrupts"           : plic_used_n_interrupts,

@@ -36,7 +36,7 @@ module xilinx_core_v_mini_mcu_wrapper
     inout logic uart_rx_i,
     inout logic uart_tx_o,
 
-    inout logic [17:0] gpio_io,
+    inout logic [16:0] gpio_io,
 
     output logic exit_value_o,
     inout  logic exit_valid_o,
@@ -61,7 +61,12 @@ module xilinx_core_v_mini_mcu_wrapper
 
     inout logic i2s_sck_io,
     inout logic i2s_ws_io,
-    inout logic i2s_sd_io
+    inout logic i2s_sd_io,
+
+    inout logic [3:0] ddr_i,
+    inout logic [3:0] ddr_o,
+    inout logic ddr_rcv_clk_i,
+    inout logic ddr_rcv_clk_o
 
 );
 
@@ -177,7 +182,6 @@ module xilinx_core_v_mini_mcu_wrapper
       .gpio_14_io(gpio_io[14]),
       .gpio_15_io(gpio_io[15]),
       .gpio_16_io(gpio_io[16]),
-      .gpio_17_io(gpio_io[17]),
       .spi_flash_sd_0_io(spi_flash_sd_io[0]),
       .spi_flash_sd_1_io(spi_flash_sd_io[1]),
       .spi_flash_sd_2_io(spi_flash_sd_io[2]),
@@ -207,7 +211,11 @@ module xilinx_core_v_mini_mcu_wrapper
       .i2s_ws_io(i2s_ws_io),
       .i2s_sd_io(i2s_sd_io),
       .ext_dma_slot_tx_i('0),
-      .ext_dma_slot_rx_i('0)
+      .ext_dma_slot_rx_i('0),
+      .ddr_i,
+      .ddr_o,
+      .ddr_rcv_clk_i,
+      .ddr_rcv_clk_o
   );
 
   assign exit_value_o = exit_value[0];

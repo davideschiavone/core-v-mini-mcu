@@ -28,7 +28,7 @@ vsim:
       fi
   parallel:
     matrix:
-      - VSIM_VER: ['10.7b', '10.7e', '2020.1', '2021.1']
+      - VSIM_VER: ['10.7b', '10.7e', '2021.3']
 
 synopsys_dc:
   stage: build
@@ -38,6 +38,16 @@ synopsys_dc:
         cd build && ../scripts/synth.sh
         $CI_PROJECT_DIR/.gitlab-ci.d/memora_retry.sh insert synopsys_dc
       fi
+
+fuse_xsim:
+  stage: build
+  script:
+    - bender sources
+    - /usr/local/anaconda3/bin/python3 -m pip install fusesoc --user
+    - mkdir fusesoc && cd fusesoc
+    - $HOME/.local/bin/fusesoc library add axi ..
+    - $HOME/.local/bin/fusesoc core list
+    - vitis-2022.1-zr $HOME/.local/bin/fusesoc run --tool xsim --target sim --no-export pulp-platform.org::axi:$(cat ../VERSION | sed s/-/./g)
 
 .run_vsim: &run_vsim
   stage: test
@@ -61,7 +71,7 @@ synopsys_dc:
       fi
   parallel:
     matrix:
-      - VSIM_VER: ['10.7b', '10.7e', '2020.1', '2021.1']
+      - VSIM_VER: ['10.7b', '10.7e', '2021.3']
 
 axi_addr_test:
   <<: *run_vsim
@@ -93,10 +103,20 @@ axi_dw_upsizer:
   variables:
     TEST_MODULE: axi_dw_upsizer
 
+axi_fifo:
+  <<: *run_vsim
+  variables:
+    TEST_MODULE: axi_fifo
+
 axi_isolate:
   <<: *run_vsim
   variables:
     TEST_MODULE: axi_isolate
+
+axi_iw_converter:
+  <<: *run_vsim
+  variables:
+    TEST_MODULE: axi_iw_converter
 
 axi_lite_regs:
   <<: *run_vsim
@@ -142,6 +162,11 @@ axi_to_axi_lite:
   <<: *run_vsim
   variables:
     TEST_MODULE: axi_to_axi_lite
+
+axi_to_mem_banked:
+  <<: *run_vsim
+  variables:
+    TEST_MODULE: axi_to_mem_banked
 
 axi_xbar:
   <<: *run_vsim

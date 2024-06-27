@@ -73,6 +73,12 @@
             length:  0x00010000,
             path:    "./hw/vendor/lowrisc_opentitan/hw/ip/uart/data/uart.hjson"
         },
+        serial_link:{
+            offset:  0x000B0000,
+            length:  0x00010000,
+            //is_included: "yes",
+            path:    "./hw/vendor/pulp_platform_serial_link/src/regs/serial_link_single_channel.hjson" //serial_link.hjson
+        },
     },
 
     peripherals: {
@@ -125,11 +131,20 @@
             is_included: "yes",
             path:    "./hw/ip/i2s/data/i2s.hjson"
         },
-
+        obi2axi:{
+            offset:  0x00080000,
+            length:  0x00010000,
+            is_included: "yes"
+        },
     },
 
     flash_mem: {
         address: 0x40000000,
+        length:  0x01000000,
+    },
+
+    axi_sl_slave:    {
+        address: 0x50000000,
         length:  0x01000000,
     },
 
